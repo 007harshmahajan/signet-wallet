@@ -271,7 +271,7 @@ pub fn recover_wallet_state(
     // Check every tx output for our own witness programs. These are coins we have received.
     // Keep track of outputs by their outpoint so we can check if it was spent later by an input
     // Collect outputs that have not been spent into a utxo set
-    // Return Wallet Statew
+    // Return Wallet State
     Ok(WalletState {
         utxos,
         public_keys,
