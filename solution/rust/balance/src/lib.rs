@@ -1,10 +1,13 @@
 #![allow(unused)]
 
-use std::process::Command;
+use std::{arch::x86_64::_mm_sha256msg1_epu32, hash, process::Command, ptr::hash};
 
+use bitcoin_hashes::hash160;
 use bs58;
 use hmac::Hmac;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin_hashes::sha256;
+use bitcoin_hashes::Hash;
 
 // Provided by administrator
 pub const WALLET_NAME: &str = "wallet_152";
@@ -35,11 +38,21 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    // Given a WalletState find the balance is satoshis
+    // Given a WalletState find the balance in satoshis
     pub fn balance(&self) -> u32 {
-        unimplemented!("implement the logic")
+        self.utxos.iter().map(|utxo| self.get_value_from_utxo(utxo)).sum()
+    }
+
+    // Helper function to extract the value from a UTXO
+    fn get_value_from_utxo(&self, utxo: &[u8]) -> u32 {
+        // Assuming the value is stored at a specific index in the UTXO
+        // You should adjust this according to your actual data structure
+        // For example, if the value is stored in the first 4 bytes, you would do something like this:
+        // u32::from_le_bytes(utxo[..4].try_into().unwrap())
+        unimplemented!("Implement logic to extract value from UTXO")
     }
 }
+
 
 // Decode a base58 string into an array of bytes
 fn base58_decode(base58_string: &str) -> Vec<u8> {
@@ -102,7 +115,7 @@ fn derive_priv_child(key: ExKey, child_num: u32) -> ExKey {
     let is_hardened = child_num >= 0x80000000;
     let mut data = Vec::new();
 
-    type HmacSha512 = Hmac<HmacSha512>;
+    type HmacSha512 = HmacSha512;
     if is_hardened {
         data.push(0x00);
     }
@@ -149,16 +162,51 @@ fn derive_priv_child(key: ExKey, child_num: u32) -> ExKey {
     child_key
 }
 
+
 // Given an extended private key and a BIP32 derivation path, compute the child private key found at the path
 // Derivation paths are strings like "m/0'/1/2h/2"
 fn get_child_key_at_path(key: ExKey, derivation_path: &str) -> ExKey {
-    unimplemented!("implement the logic")
+    let mut derived_key = key.clone();
+    
+    for path_segment in derivation_path.split('/') {
+        if path_segment.is_empty() {
+            continue;
+        }
+        
+        let (index, hardened) = if path_segment.ends_with('\'') || path_segment.ends_with('h') {
+            (path_segment[..path_segment.len() - 1].parse::<u32>().unwrap(), true)
+        } else {
+            (path_segment.parse::<u32>().unwrap(), false)
+        };
+        
+        let child_number = &key.child_number;
+        
+        derived_key = derived_key.derive_priv(&Secp256k1::new(), &child_number)
+            .expect("Derivation failed");
+    }
+    
+    derived_key
 }
 
 // Compute the first N child private keys.
 // Return an array of keys.
 fn get_keys_at_child_key_path(child_key: ExKey, num_keys: u32) -> Vec<ExKey> {
-    unimplemented!("implement the logic")
+    let mut main_keys = child_key.clone();;
+    let mut current_key:ExKey;
+    let mut current_index = 0;
+
+    let mut vec:Vec<ExKey>;
+
+    while current_index < num_keys {
+
+        let data = derive_priv_child(current_key, current_index);
+        vec.push(data);
+        
+        current_index += 1;
+        current_key = data;
+    }
+
+    vec
 }
 
 // Derive the p2wpkh witness program (aka scriptPubKey) for a given compressed public key
@@ -167,7 +215,12 @@ fn get_keys_at_child_key_path(child_key: ExKey, num_keys: u32) -> Vec<ExKey> {
 // These are segwit version 0 pay-to-public-key-hash witness programs
 // https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-P2WPKH
 fn get_p2wpkh_program(pubkey: &[u8]) -> Vec<u8> {
-    unimplemented!("implement the logic")
+    let hash = hash160::Hash::hash(pubkey);
+    
+    let mut program = vec![0x00]; // Witness version
+    program.extend_from_slice(&hash[..]); // Program length and hash160(pubkey)
+    
+    program
 }
 
 // Assuming Bitcoin Core is running and connected to signet using default datadir,
@@ -186,7 +239,8 @@ fn bcli(cmd: &str) -> Result<Vec<u8>, BalanceError> {
     if result.status.success() {
         return Ok(result.stdout);
     } else {
-        return Ok(result.stderr);
+        let error_message = String::from_utf8_lossy(&result.stderr).into_owned();
+        Err(BalanceError::BitcoinCliError(error_message))
     }
 }
 
@@ -196,7 +250,7 @@ pub fn recover_wallet_state(
     cookie_filepath: &str,
 ) -> Result<WalletState, BalanceError> {
     // Deserialize the provided extended private key
-
+    
     // Derive the key and chaincode at the path in the descriptor (`84h/1h/0h/0`)
 
     // Get the child key at the derivation path
@@ -217,7 +271,7 @@ pub fn recover_wallet_state(
     // Check every tx output for our own witness programs. These are coins we have received.
     // Keep track of outputs by their outpoint so we can check if it was spent later by an input
     // Collect outputs that have not been spent into a utxo set
-    // Return Wallet State
+    // Return Wallet Statew
     Ok(WalletState {
         utxos,
         public_keys,
